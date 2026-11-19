@@ -27,30 +27,52 @@ function formatEquipment(row) {
 }
 
 const EquipmentModel = {
-  // Get all active equipment with optional search & category filter
+  // Get all active equipment with optional search & category filter and pagination
   getAll: (filters = {}) => {
     return new Promise((resolve, reject) => {
-      let query = 'SELECT * FROM `cad_equipment` WHERE `is_active` = 1';
+      let baseWhere = ' WHERE `is_active` = 1';
       const params = [];
 
-      if (filters.category && filters.category !== 'ALL') {
-        query += ' AND `category` = ?';
+      if (filters.category && filters.category !== 'ALL' && filters.category !== 'all') {
+        baseWhere += ' AND `category` = ?';
         params.push(filters.category);
       }
 
       if (filters.search) {
         const searchTerm = `%${filters.search.toLowerCase()}%`;
-        query += ' AND (LOWER(`model`) LIKE ? OR LOWER(`mfg`) LIKE ? OR LOWER(`name`) LIKE ? OR LOWER(`category`) LIKE ?)';
+        baseWhere += ' AND (LOWER(`model`) LIKE ? OR LOWER(`mfg`) LIKE ? OR LOWER(`name`) LIKE ? OR LOWER(`category`) LIKE ?)';
         params.push(searchTerm, searchTerm, searchTerm, searchTerm);
       }
 
-      query += ' ORDER BY `category` ASC, `mfg` ASC, `model` ASC';
+      if (filters.page) {
+        const page = Math.max(1, parseInt(filters.page) || 1);
+        const limit = Math.max(1, Math.min(200, parseInt(filters.limit) || 25));
+        const offset = (page - 1) * limit;
 
-      pool.query(query, params, (err, rows) => {
-        if (err) return reject(err);
-        const formatted = rows.map(formatEquipment);
-        resolve(formatted);
-      });
+        const countQuery = 'SELECT COUNT(*) AS total FROM `cad_equipment`' + baseWhere;
+        pool.query(countQuery, params, (err, countRows) => {
+          if (err) return reject(err);
+          const total = (countRows && countRows[0] && countRows[0].total) || 0;
+
+          const dataQuery = 'SELECT * FROM `cad_equipment`' + baseWhere + ' ORDER BY `category` ASC, `mfg` ASC, `model` ASC LIMIT ?, ?';
+          pool.query(dataQuery, [...params, offset, limit], (err2, rows) => {
+            if (err2) return reject(err2);
+            resolve({
+              total,
+              page,
+              limit,
+              totalPages: Math.ceil(total / limit),
+              data: rows.map(formatEquipment)
+            });
+          });
+        });
+      } else {
+        const query = 'SELECT * FROM `cad_equipment`' + baseWhere + ' ORDER BY `category` ASC, `mfg` ASC, `model` ASC';
+        pool.query(query, params, (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(formatEquipment));
+        });
+      }
     });
   },
 

@@ -2,13 +2,25 @@ const EquipmentModel = require('../models/equipment.model');
 
 exports.getEquipmentList = async (req, res) => {
   try {
-    const { category, search } = req.query;
-    const items = await EquipmentModel.getAll({ category, search });
-    res.json({
-      success: true,
-      count: items.length,
-      data: items
-    });
+    const { category, search, page, limit } = req.query;
+    const result = await EquipmentModel.getAll({ category, search, page, limit });
+    if (page) {
+      res.json({
+        success: true,
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages,
+        count: result.data.length,
+        data: result.data
+      });
+    } else {
+      res.json({
+        success: true,
+        count: result.length,
+        data: result
+      });
+    }
   } catch (error) {
     console.error('Error in getEquipmentList:', error);
     res.status(500).json({

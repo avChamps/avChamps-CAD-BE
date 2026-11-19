@@ -9,6 +9,8 @@ const authController = require('./controllers/auth.controller');
 const downloadController = require('./controllers/download.controller');
 const projectRoutes = require('./routes/project.routes');
 const queryRoutes = require('./routes/query.routes');
+const supportRoutes = require('./routes/support.routes');
+const supportController = require('./controllers/support.controller');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -60,6 +62,8 @@ app.use('/api/run-query', queryRoutes);
 app.use('/run-query', queryRoutes);
 app.use('/api/run-quey', queryRoutes);
 app.use('/run-quey', queryRoutes);
+app.use('/api/support', supportRoutes);
+app.use('/support', supportRoutes);
 
 // Admin & Download Tracking
 app.post('/api/downloads/track', downloadController.trackDownload);
@@ -67,6 +71,7 @@ app.post('/api/admin/track-download', downloadController.trackDownload);
 app.post('/track-download', downloadController.trackDownload);
 app.get('/api/downloads/logs', downloadController.getDownloadLogs);
 app.get('/api/admin/downloads', downloadController.getDownloadLogs);
+app.get('/api/admin/support', supportController.getAllTickets);
 app.get('/api/admin/projects', (req, res) => {
   const projectController = require('./controllers/project.controller');
   return projectController.getAllProjectsAdmin(req, res);

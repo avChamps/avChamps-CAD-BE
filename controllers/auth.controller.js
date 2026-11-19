@@ -279,7 +279,7 @@ exports.getNotifications = async (req, res) => {
       }
 
       if (results && results.length > 0) {
-        const unreadCount = results.filter(r => r.IsRead === 0 || r.IsRead === false).length;
+        const unreadCount = results.filter(r => !r.IsRead || r.IsRead === 0 || r.IsRead === '0' || r.IsRead === false).length;
         return res.status(200).json({
           status: true,
           success: true,
@@ -298,7 +298,7 @@ exports.getNotifications = async (req, res) => {
       pool.query(seedSql, [emailId.trim(), emailId.trim()], (seedErr) => {
         pool.query(sql, [emailId.trim()], (reErr, reResults) => {
           const list = reResults || [];
-          const unread = list.filter(r => r.IsRead === 0 || r.IsRead === false).length;
+          const unread = list.filter(r => !r.IsRead || r.IsRead === 0 || r.IsRead === '0' || r.IsRead === false).length;
           return res.status(200).json({
             status: true,
             success: true,

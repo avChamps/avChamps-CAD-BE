@@ -38,7 +38,7 @@ exports.trackDownload = (req, res) => {
       device_info
     } = req.body;
 
-    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+    const ip = req.headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || req.ip || '127.0.0.1';
     const email = user_email || 'guest@avcad.com';
     const name = user_name || 'Guest User';
     const type = download_type || 'CAD Image';
@@ -73,39 +73,71 @@ exports.trackDownload = (req, res) => {
 // 2. Fetch All Download Logs (GET /api/downloads/logs or GET /api/admin/downloads)
 exports.getDownloadLogs = (req, res) => {
   try {
-    const { email, type, limit = 200 } = req.query;
-    let sql = 'SELECT * FROM cad_download_logs';
+    const { email, type, search, page, limit } = req.query;
+    let baseWhere = ' WHERE 1=1';
     const params = [];
-    const conditions = [];
 
     if (email) {
-      conditions.push('user_email LIKE ?');
+      baseWhere += ' AND user_email LIKE ?';
       params.push(`%${email.trim()}%`);
     }
+
     if (type && type !== 'all') {
-      conditions.push('download_type = ?');
+      baseWhere += ' AND download_type = ?';
       params.push(type);
     }
 
-    if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ');
+    if (search && search.trim()) {
+      const s = `%${search.trim().toLowerCase()}%`;
+      baseWhere += ' AND (LOWER(user_email) LIKE ? OR LOWER(user_name) LIKE ? OR LOWER(project_name) LIKE ? OR LOWER(file_name) LIKE ?)';
+      params.push(s, s, s, s);
     }
 
-    sql += ' ORDER BY created_at DESC LIMIT ?';
-    params.push(parseInt(limit) || 200);
+    if (page) {
+      const p = Math.max(1, parseInt(page) || 1);
+      const l = Math.max(1, Math.min(200, parseInt(limit) || 25));
+      const offset = (p - 1) * l;
 
-    pool.query(sql, params, (err, rows) => {
-      if (err) {
-        console.error('[CAD-BE] Error fetching download logs:', err);
-        return res.status(500).json({ success: false, message: 'Database error fetching logs', error: err.message });
-      }
+      const countSql = 'SELECT COUNT(*) AS total FROM cad_download_logs' + baseWhere;
+      pool.query(countSql, params, (err, countResult) => {
+        if (err) {
+          console.error('[CAD-BE] Error counting download logs:', err);
+          return res.status(500).json({ success: false, message: 'Database error counting logs', error: err.message });
+        }
+        const total = (countResult && countResult[0] && countResult[0].total) || 0;
 
-      return res.status(200).json({
-        success: true,
-        count: rows.length,
-        logs: rows
+        const dataSql = `SELECT * FROM cad_download_logs ${baseWhere} ORDER BY created_at DESC LIMIT ?, ?`;
+        pool.query(dataSql, [...params, offset, l], (err2, rows) => {
+          if (err2) {
+            console.error('[CAD-BE] Error fetching download logs page:', err2);
+            return res.status(500).json({ success: false, message: 'Database error fetching logs', error: err2.message });
+          }
+          return res.status(200).json({
+            success: true,
+            total,
+            page: p,
+            limit: l,
+            totalPages: Math.ceil(total / l),
+            count: rows.length,
+            logs: rows
+          });
+        });
       });
-    });
+    } else {
+      const maxLimit = parseInt(limit) || 200;
+      const sql = `SELECT * FROM cad_download_logs ${baseWhere} ORDER BY created_at DESC LIMIT ?`;
+      pool.query(sql, [...params, maxLimit], (err, rows) => {
+        if (err) {
+          console.error('[CAD-BE] Error fetching download logs:', err);
+          return res.status(500).json({ success: false, message: 'Database error fetching logs', error: err.message });
+        }
+        return res.status(200).json({
+          success: true,
+          count: rows.length,
+          logs: rows
+        });
+      });
+    }
   } catch (err) {
     console.error('[CAD-BE] getDownloadLogs error:', err);
     return res.status(500).json({ success: false, message: err.message });

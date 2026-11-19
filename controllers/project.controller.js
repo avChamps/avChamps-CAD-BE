@@ -251,29 +251,93 @@ exports.getProjectById = (req, res) => {
   });
 };
 
-// Admin: Get all projects across all users
+// Admin: Get all projects across all users with pagination & search
 exports.getAllProjectsAdmin = (req, res) => {
-  const statusFilter = req.query.status;
-  let sql = `
-    SELECT id, user_id, user_email, user_name, project_name, nodes_count, wires_count, total_price, status, created_at, updated_at
-    FROM \`cad_projects\`
-  `;
+  const { status, search, page, limit } = req.query;
+  let baseWhere = ' WHERE 1=1';
   const params = [];
-  if (statusFilter && statusFilter !== 'all') {
-    sql += ` WHERE \`status\` = ?`;
-    params.push(statusFilter);
-  }
-  sql += ` ORDER BY \`updated_at\` DESC`;
 
-  pool.query(sql, params, (err, rows) => {
-    if (err) {
-      console.error('[CAD-BE] Error fetching all projects for admin:', err);
-      return res.status(500).json({ success: false, message: 'Failed to fetch all projects', error: err.message });
-    }
-    return res.status(200).json({
-      success: true,
-      count: rows.length,
-      projects: rows
+  if (status && status !== 'all') {
+    baseWhere += ' AND `status` = ?';
+    params.push(status);
+  }
+
+  if (search && search.trim()) {
+    const s = `%${search.trim().toLowerCase()}%`;
+    baseWhere += ' AND (LOWER(`project_name`) LIKE ? OR LOWER(`user_email`) LIKE ? OR LOWER(`user_name`) LIKE ?)';
+    params.push(s, s, s);
+  }
+
+  if (page) {
+    const p = Math.max(1, parseInt(page) || 1);
+    const l = Math.max(1, Math.min(200, parseInt(limit) || 25));
+    const offset = (p - 1) * l;
+
+    const countSql = `
+      SELECT 
+        COUNT(*) AS total,
+        SUM(CASE WHEN \`status\` = 'saved' THEN 1 ELSE 0 END) AS saved_count,
+        SUM(CASE WHEN \`status\` = 'draft' THEN 1 ELSE 0 END) AS draft_count,
+        COUNT(DISTINCT \`user_email\`) AS users_count
+      FROM \`cad_projects\`
+      ${baseWhere}
+    `;
+    pool.query(countSql, params, (err, countResult) => {
+      if (err) {
+        console.error('[CAD-BE] Error counting projects for admin:', err);
+        return res.status(500).json({ success: false, message: 'Failed to count projects', error: err.message });
+      }
+      const agg = (countResult && countResult[0]) || {};
+      const total = Number(agg.total) || 0;
+      const stats = {
+        total,
+        savedCount: Number(agg.saved_count) || 0,
+        draftCount: Number(agg.draft_count) || 0,
+        usersCount: Number(agg.users_count) || 0
+      };
+
+      const dataSql = `
+        SELECT id, user_id, user_email, user_name, project_name, nodes_count, wires_count, total_price, status, created_at, updated_at
+        FROM \`cad_projects\`
+        ${baseWhere}
+        ORDER BY \`updated_at\` DESC
+        LIMIT ?, ?
+      `;
+
+      pool.query(dataSql, [...params, offset, l], (err2, rows) => {
+        if (err2) {
+          console.error('[CAD-BE] Error fetching projects page for admin:', err2);
+          return res.status(500).json({ success: false, message: 'Failed to fetch projects', error: err2.message });
+        }
+        return res.status(200).json({
+          success: true,
+          total,
+          stats,
+          page: p,
+          limit: l,
+          totalPages: Math.ceil(total / l),
+          count: rows.length,
+          projects: rows
+        });
+      });
     });
-  });
+  } else {
+    let sql = `
+      SELECT id, user_id, user_email, user_name, project_name, nodes_count, wires_count, total_price, status, created_at, updated_at
+      FROM \`cad_projects\`
+      ${baseWhere}
+      ORDER BY \`updated_at\` DESC
+    `;
+    pool.query(sql, params, (err, rows) => {
+      if (err) {
+        console.error('[CAD-BE] Error fetching all projects for admin:', err);
+        return res.status(500).json({ success: false, message: 'Failed to fetch all projects', error: err.message });
+      }
+      return res.status(200).json({
+        success: true,
+        count: rows.length,
+        projects: rows
+      });
+    });
+  }
 };
